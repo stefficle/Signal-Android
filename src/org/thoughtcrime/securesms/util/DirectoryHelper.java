@@ -141,7 +141,7 @@ public class DirectoryHelper {
       }
 
       // Steffi: Signal-User, die nicht auf der WhiteList stehen oder Eltern-Kontakt sind,
-      // sollen nicht hinzugefügt werden
+      // sollen nicht hinzugefügt werden.
       for (ContactTokenDetails ctd : activeTokensToRemove) {
         activeTokens.remove(ctd);
       }
