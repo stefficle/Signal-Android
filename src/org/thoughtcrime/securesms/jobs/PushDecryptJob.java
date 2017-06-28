@@ -2,11 +2,19 @@ package org.thoughtcrime.securesms.jobs;
 
 import android.content.Context;
 import android.content.Intent;
+import android.os.AsyncTask;
 import android.support.annotation.NonNull;
 import android.util.Log;
 import android.util.Pair;
 
 import org.thoughtcrime.securesms.ApplicationContext;
+import org.thoughtcrime.securesms.additions.BlackList;
+import org.thoughtcrime.securesms.additions.FileHelper;
+import org.thoughtcrime.securesms.additions.MessageHelper;
+import org.thoughtcrime.securesms.additions.ParentsContact;
+import org.thoughtcrime.securesms.additions.PendingList;
+import org.thoughtcrime.securesms.additions.VCard;
+import org.thoughtcrime.securesms.additions.WhiteList;
 import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
 import org.thoughtcrime.securesms.attachments.PointerAttachment;
 import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
@@ -23,8 +31,10 @@ import org.thoughtcrime.securesms.database.MessagingDatabase.InsertResult;
 import org.thoughtcrime.securesms.database.MessagingDatabase.SyncMessageId;
 import org.thoughtcrime.securesms.database.MmsDatabase;
 import org.thoughtcrime.securesms.database.NoSuchMessageException;
+import org.thoughtcrime.securesms.database.NotInDirectoryException;
 import org.thoughtcrime.securesms.database.PushDatabase;
 import org.thoughtcrime.securesms.database.SmsDatabase;
+import org.thoughtcrime.securesms.database.TextSecureDirectory;
 import org.thoughtcrime.securesms.database.ThreadDatabase;
 import org.thoughtcrime.securesms.groups.GroupMessageProcessor;
 import org.thoughtcrime.securesms.mms.IncomingMediaMessage;
@@ -33,6 +43,7 @@ import org.thoughtcrime.securesms.mms.OutgoingExpirationUpdateMessage;
 import org.thoughtcrime.securesms.mms.OutgoingMediaMessage;
 import org.thoughtcrime.securesms.mms.OutgoingSecureMediaMessage;
 import org.thoughtcrime.securesms.notifications.MessageNotifier;
+import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientFactory;
 import org.thoughtcrime.securesms.recipients.Recipients;
 import org.thoughtcrime.securesms.service.KeyCachingService;
@@ -41,11 +52,15 @@ import org.thoughtcrime.securesms.sms.IncomingEncryptedMessage;
 import org.thoughtcrime.securesms.sms.IncomingEndSessionMessage;
 import org.thoughtcrime.securesms.sms.IncomingPreKeyBundleMessage;
 import org.thoughtcrime.securesms.sms.IncomingTextMessage;
+import org.thoughtcrime.securesms.sms.MessageSender;
+import org.thoughtcrime.securesms.sms.OutgoingEncryptedMessage;
 import org.thoughtcrime.securesms.sms.OutgoingEndSessionMessage;
 import org.thoughtcrime.securesms.sms.OutgoingTextMessage;
 import org.thoughtcrime.securesms.util.Base64;
+import org.thoughtcrime.securesms.util.DirectoryHelper;
 import org.thoughtcrime.securesms.util.GroupUtil;
 import org.thoughtcrime.securesms.util.IdentityUtil;
+import org.thoughtcrime.securesms.util.JsonUtils;
 import org.thoughtcrime.securesms.util.TextSecurePreferences;
 import org.whispersystems.jobqueue.JobParameters;
 import org.whispersystems.libsignal.DuplicateMessageException;
@@ -80,7 +95,11 @@ import org.whispersystems.signalservice.api.messages.multidevice.SignalServiceSy
 import org.whispersystems.signalservice.api.messages.multidevice.VerifiedMessage;
 import org.whispersystems.signalservice.api.push.SignalServiceAddress;
 
+import java.io.IOException;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class PushDecryptJob extends ContextJob {
@@ -155,13 +174,17 @@ public class PushDecryptJob extends ContextJob {
         SignalServiceDataMessage message = content.getDataMessage().get();
 
         if      (message.isEndSession())               handleEndSessionMessage(masterSecret, envelope, message, smsMessageId);
-        else if (message.isGroupUpdate())              handleGroupMessage(masterSecret, envelope, message, smsMessageId);
-        else if (message.isExpirationUpdate())         handleExpirationUpdate(masterSecret, envelope, message, smsMessageId);
+        else if (message.isGroupUpdate())
+          return; //handleGroupMessage(masterSecret, envelope, message, smsMessageId); // Steffi: Gruppen-Daten-Nachricht deaktivieren
+        else if (message.isExpirationUpdate())
+          return; // TODO: wieso? handleExpirationUpdate(masterSecret, envelope, message, smsMessageId);
         else if (message.getAttachments().isPresent()) handleMediaMessage(masterSecret, envelope, message, smsMessageId);
         else                                           handleTextMessage(masterSecret, envelope, message, smsMessageId);
 
         if (message.getGroupInfo().isPresent() && groupDatabase.isUnknownGroup(message.getGroupInfo().get().getGroupId())) {
-          handleUnknownGroupMessage(envelope, message.getGroupInfo().get());
+          return;
+          // Steffi: Unbekannte Gruppe wird nicht mehr bearbeitet
+          // handleUnknownGroupMessage(envelope, message.getGroupInfo().get());
         }
       } else if (content.getSyncMessage().isPresent()) {
         SignalServiceSyncMessage syncMessage = content.getSyncMessage().get();
@@ -171,16 +194,19 @@ public class PushDecryptJob extends ContextJob {
         else if (syncMessage.getRead().isPresent())     handleSynchronizeReadMessage(masterSecret, syncMessage.getRead().get(), envelope.getTimestamp());
         else if (syncMessage.getVerified().isPresent()) handleSynchronizeVerifiedMessage(masterSecret, syncMessage.getVerified().get());
         else                                           Log.w(TAG, "Contains no known sync types...");
-      } else if (content.getCallMessage().isPresent()) {
-        Log.w(TAG, "Got call message...");
-        SignalServiceCallMessage message = content.getCallMessage().get();
-
-        if      (message.getOfferMessage().isPresent())      handleCallOfferMessage(envelope, message.getOfferMessage().get(), smsMessageId);
-        else if (message.getAnswerMessage().isPresent())     handleCallAnswerMessage(envelope, message.getAnswerMessage().get());
-        else if (message.getIceUpdateMessages().isPresent()) handleCallIceUpdateMessage(envelope, message.getIceUpdateMessages().get());
-        else if (message.getHangupMessage().isPresent())     handleCallHangupMessage(envelope, message.getHangupMessage().get(), smsMessageId);
-        else if (message.getBusyMessage().isPresent())       handleCallBusyMessage(envelope, message.getBusyMessage().get());
-      } else {
+      } else
+      // Steffi: Call deaktiviert
+//        if (content.getCallMessage().isPresent()) {
+//        Log.w(TAG, "Got call message...");
+//        SignalServiceCallMessage message = content.getCallMessage().get();
+//
+//        if      (message.getOfferMessage().isPresent())      handleCallOfferMessage(envelope, message.getOfferMessage().get(), smsMessageId);
+//        else if (message.getAnswerMessage().isPresent())     handleCallAnswerMessage(envelope, message.getAnswerMessage().get());
+//        else if (message.getIceUpdateMessages().isPresent()) handleCallIceUpdateMessage(envelope, message.getIceUpdateMessages().get());
+//        else if (message.getHangupMessage().isPresent())     handleCallHangupMessage(envelope, message.getHangupMessage().get(), smsMessageId);
+//        else if (message.getBusyMessage().isPresent())       handleCallBusyMessage(envelope, message.getBusyMessage().get());
+//      } else
+      {
         Log.w(TAG, "Got unrecognized message...");
       }
 
@@ -500,7 +526,10 @@ public class PushDecryptJob extends ContextJob {
                                                                  Optional.fromNullable(envelope.getRelay()),
                                                                  message.getBody(),
                                                                  message.getGroupInfo(),
-                                                                 message.getAttachments());
+                                                                message.getAttachments());
+    // TODO: Beschreibung
+    String source = envelope.getSource();
+    if (!isInWhiteList(source)) return;
 
     if (message.getExpiresInSeconds() != recipients.getExpireMessages()) {
       handleExpirationUpdate(masterSecret, envelope, message, Optional.<Long>absent());
@@ -604,6 +633,277 @@ public class PushDecryptJob extends ContextJob {
     return threadId;
   }
 
+  private boolean isInWhiteList(String source) {
+    WhiteList whiteList = WhiteList.getWhiteListContent(context);
+    return whiteList.isInWhiteList(source);
+  }
+
+  private boolean isFromParents(String source) {
+    VCard personalVCard = getPersonalVCard();
+    boolean isFromParents = false;
+
+    for (ParentsContact p : personalVCard.getParents()) {
+      if (p.getMobileNumber().equals(source)) {
+        isFromParents = true;
+        break;
+      }
+    }
+
+    return isFromParents;
+  }
+
+  private VCard getPersonalVCard() {
+    VCard personalVCard = new VCard();
+    String jsonString = FileHelper.readDataFromFile(context, FileHelper.vCardFileName);
+    try {
+      personalVCard = JsonUtils.fromJson(jsonString, VCard.class);
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return personalVCard;
+  }
+
+  private boolean isSpecialMessage(String message) {
+    return MessageHelper.startsWithSpecialCode(message);
+  }
+
+  // Blocken eines Kontakts
+  private void blockContact(String message) {
+    int id = MessageHelper.getIdFromMessage(message);
+    String number = MessageHelper.getNumberFromMessageForRemoval(message);
+
+    Date expDate = BlackList.getExpirationDate();
+    if (MessageHelper.isPermanentBlock(message)) {
+      expDate = null;
+    }
+    if (id > 0) {
+      VCard vCard = null;
+      try {
+        vCard = PendingList.removeVCardById(context, id);
+        if (vCard != null) {
+          BlackList.addNumberToFile(context, vCard.getMobileNumber(), expDate);
+        }
+      } catch (Exception e) {
+        e.printStackTrace();
+        if (vCard != null) {
+          PendingList.addNewVCard(context, vCard);
+        }
+      }
+    } else if (!number.isEmpty()) {
+      try {
+        BlackList.addNumberToFile(context, number, expDate);
+        WhiteList.removeNumberFromFile(context, number);
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+    }
+
+  }
+
+  // Kontakt erlauben
+  private void approveContact(String message) {
+    Integer id = MessageHelper.getIdFromMessage(message);
+    if (id > 0) {
+      VCard vCard = null;
+      try {
+        vCard = PendingList.removeVCardById(context, id);
+        if (vCard != null) {
+          WhiteList.addNumberToFile(context, vCard.getMobileNumber(), vCard.getFirstName() + " " + vCard.getLastName());
+
+          MasterSecret masterSecret = KeyCachingService.getMasterSecret(context);
+          DirectoryHelper.refreshDirectory(context, masterSecret);
+        }
+      } catch (Exception e) {
+        e.printStackTrace();
+        if (vCard != null) {
+          PendingList.addNewVCard(context, vCard);
+        }
+      }
+    }
+  }
+
+  // Neuen Kontakt hinzufügen
+  private void addNewContact(String message) {
+    String number = MessageHelper.getNumberFromMessage(message);
+    String displayName = MessageHelper.getDisplayNameFromMessage(message);
+    WhiteList.addNumberToFile(context, number, displayName);
+
+    MasterSecret masterSecret = KeyCachingService.getMasterSecret(context);
+    try {
+      DirectoryHelper.refreshDirectory(context, masterSecret);
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+  }
+
+  // Angefragte Liste anfordern
+  private void listContent(String message, String source, Recipients recipients) {
+    String listName = MessageHelper.getListNameFromMessage(message);
+    String messageText = "";
+    // Steffi: Methode, um angefragte Liste zurück zu liefern
+    try {
+      switch (listName) {
+        case "geblockt":
+          BlackList.checkExpirationDates(context);
+          messageText += "Folgende Einträge befinden sich in der blockierten Liste:\n";
+          BlackList blackList = BlackList.getBlackListContent(context);
+          HashMap<String, Date> contacts = blackList.getBlockedContacts();
+          for (Map.Entry<String, Date> c : contacts.entrySet()) {
+            messageText += String.format("\nNummer: %1$s , Läuft ab: %2$s\n", c.getKey(), c.getValue() != null ? c.getValue() : "Nie");
+          }
+          break;
+        case "erlaubt":
+          messageText += "Folgende Einträge befinden sich in der erlaubten Liste:\n";
+          WhiteList whiteList = WhiteList.getWhiteListContent(context);
+          HashMap<String, String> whiteContacts = whiteList.getContactList();
+          for (Map.Entry<String, String> c : whiteContacts.entrySet()) {
+            messageText += String.format("\nNummer: %1$s , Name: %2$s\n", c.getKey(), c.getValue());
+          }
+          break;
+        case "wartet":
+          PendingList.checkExpirationDates(context);
+          messageText += "Folgende Einträge sind auf der Warteliste:\n";
+          PendingList pendingList = PendingList.getPendingListContent(context);
+          HashMap<Integer, VCard> pendingContacts = pendingList.getPendingVCards();
+          for (Map.Entry<Integer, VCard> c : pendingContacts.entrySet()) {
+            messageText += String.format("\nID: %1$d - Nummer: %2$s , Name: %3$s\n",
+                    c.getKey(),
+                    c.getValue().getMobileNumber(),
+                    c.getValue().getFirstName() + " " + c.getValue().getLastName());
+          }
+          break;
+        default:
+          messageText = String.format("Liste mit dem Namen %1$s ist nicht verfügbar", listName);
+          break;
+      }
+      if (!message.isEmpty()) {
+        SendMessage(messageText, source, recipients);
+      } else {
+        return;
+      }
+    } catch (NotInDirectoryException nide) {
+      nide.printStackTrace();
+    }
+  }
+
+  private void sendHelpMessage(String source, Recipients recipients) {
+    try {
+      String helpMessageText = "Sie können folgende Kommandos nutzen:\n\n" +
+              "!@ ok ID - Kontakt bestätigen" +
+              "\n\n!@ block ID - Kontakt für 2 Wochen blockieren" +
+              "\n\n!@ block ID perm - Kontakt permanent blockieren" +
+              "\n\n!@ new NUMMER ANZEIGENAME - neue Nummer mit Anzeigenamen hinzufügen" +
+              "\n\n!@ list LISTENNAME - zeigt gewünschte Liste an; zur Verfügung stehende Listen: geblockt, erlaubt, wartet" +
+              "\n\n!@ remove NUMMER - entfernt jeden Eintrag mit der entsprechenden Nummer";
+      SendMessage(helpMessageText, source, recipients);
+    } catch (NotInDirectoryException nide) {
+      nide.printStackTrace();
+    }
+  }
+
+  /**
+   * Hilfsmethode zum Versenden einer Text-Nachricht als Antwort auf ein Spezial-Kommando
+   *
+   * @param messageText
+   * @param recipients
+   * @throws NotInDirectoryException
+   */
+  private void SendMessage(String messageText, String source, Recipients recipients) throws NotInDirectoryException {
+    final MasterSecret masterSecret = KeyCachingService.getMasterSecret(context);
+    boolean isSecureText = TextSecureDirectory.getInstance(context).isSecureTextSupported(source);
+
+    OutgoingTextMessage message = null;
+
+    // Steffi: subscriptionId ermitteln
+    long expiresIn = -1;
+    int subscriptionId = 0;
+
+    if (isSecureText) {
+      message = new OutgoingEncryptedMessage(recipients, messageText, expiresIn);
+    } else {
+      message = new OutgoingTextMessage(recipients, messageText, expiresIn, subscriptionId);
+    }
+
+
+    // Steffi: threadId ermitteln
+    new AsyncTask<OutgoingTextMessage, Void, Long>() {
+      @Override
+      protected Long doInBackground(OutgoingTextMessage... messages) {
+        // Steffi: threadId setzen
+        long threadId = 0;
+        return MessageSender.send(context, masterSecret, messages[0], threadId, false, null);
+      }
+
+      @Override
+      protected void onPostExecute(Long result) {
+
+      }
+    }.execute(message);
+  }
+
+//  private void validateSpecialMessage(String message, String source, Recipients recipients) {
+//    if (MessageHelper.isDebugCommand(message)) {
+//      HandleDebugCommand(message, source, recipients);
+//    } else {
+//      HandleCommand(message, source, recipients);
+//    }
+//  }
+
+//  private void HandleDebugCommand(String message, String source, Recipients recipients) {
+//    String code = MessageHelper.getDebugCommand(message);
+//
+//    switch (code) {
+//      case "warte":
+//        addToPendingList(message);
+//        break;
+//      default:
+//        break;
+//    }
+//  }
+
+//  private void addToPendingList(String message) {
+//    String mobileNumber = MessageHelper.getNumberForDebug(message);
+//    String firstName = MessageHelper.getFirstNameForDebug(message);
+//    String lastName = MessageHelper.getLastNameForDebug(message);
+//    VCard newVCard = new VCard(firstName, lastName, mobileNumber);
+//    PendingList.addNewVCard(context, newVCard);
+//  }
+
+  private void HandleCommand(String message, String source, Recipients recipients) {
+    String code = MessageHelper.getCommandFromMessage(message);
+
+    switch (code) {
+      case "ok":
+        approveContact(message);
+        break;
+      case "block":
+        blockContact(message);
+        break;
+      case "new":
+        addNewContact(message);
+        break;
+      case "list":
+        listContent(message, source, recipients);
+        break;
+      case "help":
+        sendHelpMessage(source, recipients);
+        break;
+      case "remove":
+        removeByNumber(message);
+      default:
+        break;
+    }
+  }
+
+  private void removeByNumber(String message) {
+    String number = MessageHelper.getNumberFromMessageForRemoval(message);
+    WhiteList.removeNumberFromFile(context, number);
+    BlackList.removeNumberFromFile(context, number);
+    PendingList.removeVCardByNumber(context, number);
+  }
+
+  // Steffi: Einsprungspunkt bei Erhalt einer Nachricht
+  // \n ist newLine
   private void handleTextMessage(@NonNull MasterSecretUnion masterSecret,
                                  @NonNull SignalServiceEnvelope envelope,
                                  @NonNull SignalServiceDataMessage message,
@@ -613,9 +913,77 @@ public class PushDecryptJob extends ContextJob {
     EncryptingSmsDatabase database   = DatabaseFactory.getEncryptingSmsDatabase(context);
     String                body       = message.getBody().isPresent() ? message.getBody().get() : "";
     Recipients            recipients = getMessageDestination(envelope, message);
+    String                source = envelope.getSource();
 
+    Recipient             r = recipients.getPrimaryRecipient();
+
+    if (isVCard(body)) {
+      String vCardString = body.replace("!@vcard_", "").trim();
+//      boolean isFinisher = vCardString.endsWith("|fpf");
+//      if(isFinisher) {
+//        vCardString = vCardString.replace("|fpf", "").trim();
+//      }
+      try {
+        PendingList.checkExpirationDates(context);
+        BlackList.checkExpirationDates(context);
+
+        VCard vCard = JsonUtils.fromJson(vCardString, VCard.class);
+
+        // Ist die Nummer schon in der BlackList vorhanden, verwerfe die Anfrage
+        if (BlackList
+                .getBlackListContent(context)
+                .isInBlackList(vCard.getMobileNumber())) return;
+
+        // Ist die Nummer schon in der WhiteList vorhanden, verwerfe die Anfrage
+        if (WhiteList
+                .getWhiteListContent(context)
+                .isInWhiteList(vCard.getMobileNumber())) return;
+
+
+        int result = PendingList.addNewVCard(context, vCard);
+        if (result > -1) sendPendingToParents(context, vCard, result);
+      } catch (IOException ioe) {
+        ioe.printStackTrace();
+      } finally {
+//        if (isFinisher) {
+//          final Context appContext = context;
+//
+//          new AsyncTask<Void, Void, Void>(){
+//
+//            @Override
+//            protected Void doInBackground(Void... params) {
+//              Intent intent = new Intent(appContext, ConversationListActivity.class);
+//              context.startActivity(intent);
+//              return null;
+//            }
+//          }.execute();
+//        }
+      }
+    }
+
+    // Steffi: Prüfe, ob Sender in der Whitelist ist
+    // Wenn nicht, dann droppe Nachricht (sprich: return;)
+    if (!isInWhiteList(source)) return;
+
+    // Steffi: Nachricht untersuchen, ob von Eltern stammt und spez. Inhalt zum Blocken (-> Blacklist), Erlauben oder Hinzufügen (-> Whitelist) eines Kontaktes vorhanden ist
+    // Wenn ja, dann verarbeite Nachricht als Befehl und droppe danach (Nachricht  ist "unsichtbar")
+    if (isFromParents(source)) {
+      if (isSpecialMessage(body)) {
+        // Prüfe Nachricht auf SpecialCode und verarbeite diesen dann
+        HandleCommand(body, source, recipients);
+        // Nachricht droppen:
+        return;
+      }
+    }
+//     Wenn dennoch ein Spezial-Kommando ankommt, wird es einfach verworfen
+    if (isSpecialMessage(body)) {
+      return;
+    }
+    // Ansonsten zeige wie üblich die Nachricht an
     if (message.getExpiresInSeconds() != recipients.getExpireMessages()) {
-      handleExpirationUpdate(masterSecret, envelope, message, Optional.<Long>absent());
+      return;
+      // handleExpirationUpdate(masterSecret, envelope, message, Optional.<Long>absent());
+    // Steffi: Nachrichten, die von allein verschwinden sollen, werden gar nicht erst angezeigt
     }
 
     Long threadId;
@@ -628,7 +996,7 @@ public class PushDecryptJob extends ContextJob {
                                                                 message.getTimestamp(), body,
                                                                 message.getGroupInfo(),
                                                                 message.getExpiresInSeconds() * 1000);
-
+// Steffi: Hier wird die Nachricht angezeigt
       textMessage = new IncomingEncryptedMessage(textMessage, body);
       Optional<InsertResult> insertResult = database.insertMessageInbox(masterSecret, textMessage);
 
@@ -641,6 +1009,33 @@ public class PushDecryptJob extends ContextJob {
     if (threadId != null) {
       MessageNotifier.updateNotification(context, masterSecret.getMasterSecret().orNull(), threadId);
     }
+  }
+
+
+  private void sendPendingToParents(Context context, VCard vCard, int identifier) {
+    String message = "Neuer Freund wartet auf Freigabe\n";
+    message += String.format("ID: %1$s - Name: %2$s %3$s, Nummer: %4$s\n", identifier, vCard.getFirstName(), vCard.getLastName(), vCard.getMobileNumber());
+    message += "Eltern:";
+    for (ParentsContact p : vCard.getParents()) {
+      message += "\n";
+      message += String.format("Name: %1$s %2$s, Nummer: %3$s", p.getFirstName(), p.getLastName(), p.getMobileNumber());
+    }
+    message += "\n";
+    message += String.format("Sie können diesen Kontakt zulassen, indem Sie \"!@ ok %1$s\" senden\n", identifier);
+    message += "Für weitere Funktionen senden Sie \"!@ help\"";
+
+    VCard ownVCard = getPersonalVCard();
+    String parentsNumber = ownVCard.getParents().get(0).getMobileNumber();
+    Recipients r = RecipientFactory.getRecipientsFromString(context, parentsNumber, false);
+    try {
+      SendMessage(message, parentsNumber, r);
+    } catch (NotInDirectoryException nide) {
+      nide.printStackTrace();
+    }
+  }
+
+  private boolean isVCard(String body) {
+    return body.startsWith("!@vcard_");
   }
 
   private long handleSynchronizeSentTextMessage(@NonNull MasterSecretUnion masterSecret,

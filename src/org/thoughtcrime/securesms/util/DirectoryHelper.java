@@ -13,6 +13,10 @@ import android.util.Log;
 
 import org.thoughtcrime.securesms.ApplicationContext;
 import org.thoughtcrime.securesms.R;
+import org.thoughtcrime.securesms.additions.FileHelper;
+import org.thoughtcrime.securesms.additions.ParentsContact;
+import org.thoughtcrime.securesms.additions.VCard;
+import org.thoughtcrime.securesms.additions.WhiteList;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.crypto.SessionUtil;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
@@ -31,6 +35,7 @@ import org.whispersystems.signalservice.api.push.ContactTokenDetails;
 import org.whispersystems.signalservice.api.util.InvalidNumberException;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.LinkedList;
 import java.util.List;
@@ -72,6 +77,7 @@ public class DirectoryHelper {
 
   private static final String TAG = DirectoryHelper.class.getSimpleName();
 
+  // Steffi: Aktualisierung der Kontaktliste
   public static void refreshDirectory(@NonNull Context context, @Nullable MasterSecret masterSecret)
       throws IOException
   {
@@ -90,6 +96,7 @@ public class DirectoryHelper {
     }
   }
 
+  // Steffi: Hier werden die Kontakte erneuert
   public static @NonNull RefreshResult refreshDirectory(@NonNull Context context,
                                                         @NonNull SignalServiceAccountManager accountManager,
                                                         @NonNull String localNumber)
@@ -97,15 +104,50 @@ public class DirectoryHelper {
   {
     TextSecureDirectory       directory              = TextSecureDirectory.getInstance(context);
     Set<String>               eligibleContactNumbers = directory.getPushEligibleContactNumbers(localNumber);
+
+    String vCard = FileHelper.readDataFromFile(context, FileHelper.vCardFileName);
+    VCard child = JsonUtils.fromJson(vCard, VCard.class);
+
+    for (ParentsContact p : child.getParents()) {
+      if (!eligibleContactNumbers.contains(p.getMobileNumber())) {
+        eligibleContactNumbers.add(p.getMobileNumber());
+      }
+    }
+
     List<ContactTokenDetails> activeTokens           = accountManager.getContacts(eligibleContactNumbers);
+    List<ContactTokenDetails> activeTokensToRemove = new ArrayList<>();
+
+    // Steffi: whitelist auslesen
+    WhiteList whiteList = WhiteList.getWhiteListContent(context);
 
     if (activeTokens != null) {
       for (ContactTokenDetails activeToken : activeTokens) {
-        eligibleContactNumbers.remove(activeToken.getNumber());
-        activeToken.setNumber(activeToken.getNumber());
+        for (String number : whiteList.getContactList().keySet())
+          if (number.equals(activeToken.getNumber())) {
+            eligibleContactNumbers.remove(activeToken.getNumber());
+            activeToken.setNumber(activeToken.getNumber());
+            break;
+          } else {
+            for (ParentsContact p : child.getParents()) {
+              if (p.getMobileNumber().equals(activeToken.getNumber())) {
+                eligibleContactNumbers.remove(activeToken.getNumber());
+                activeToken.setNumber(activeToken.getNumber());
+                break;
+              } else {
+                activeTokensToRemove.add(activeToken);
+              }
+            }
+          }
+      }
+
+      // Steffi: Signal-User, die nicht auf der WhiteList stehen oder Eltern-Kontakt sind,
+      // sollen nicht hinzugefügt werden
+      for (ContactTokenDetails ctd : activeTokensToRemove) {
+        activeTokens.remove(ctd);
       }
 
       directory.setNumbers(activeTokens, eligibleContactNumbers);
+      // Steffi: Update der Kontakt-DB-Tabelle
       return updateContactsDatabase(context, localNumber, activeTokens, true);
     }
 

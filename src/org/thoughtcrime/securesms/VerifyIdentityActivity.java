@@ -127,6 +127,7 @@ public class VerifyIdentityActivity extends PassphraseRequiredActionBarActivity 
 
       setActionBarNotificationBarColor(recipient.getColor());
 
+      // Steffi TODO: überprüfen, was tatsächlich überliefert und wie damit gearbeitet wird (Aufruf bspw. in ConversationAvtivity Zeile 2143 ff.)
       Bundle extras = new Bundle();
       extras.putLong(VerifyDisplayFragment.REMOTE_RECIPIENT_ID, getIntent().getLongExtra(RECIPIENT_ID_EXTRA, -1));
       extras.putParcelable(VerifyDisplayFragment.REMOTE_IDENTITY, getIntent().getParcelableExtra(IDENTITY_EXTRA));

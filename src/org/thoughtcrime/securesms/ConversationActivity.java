@@ -70,6 +70,7 @@ import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
 import org.thoughtcrime.securesms.TransportOptions.OnTransportChangedListener;
+import org.thoughtcrime.securesms.additions.WhiteList;
 import org.thoughtcrime.securesms.audio.AudioRecorder;
 import org.thoughtcrime.securesms.audio.AudioSlidePlayer;
 import org.thoughtcrime.securesms.color.MaterialColor;
@@ -94,6 +95,7 @@ import org.thoughtcrime.securesms.components.reminder.ReminderView;
 import org.thoughtcrime.securesms.contacts.ContactAccessor;
 import org.thoughtcrime.securesms.contacts.ContactAccessor.ContactData;
 import org.thoughtcrime.securesms.crypto.IdentityKeyParcelable;
+import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.MasterCipher;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.crypto.SecurityEvent;
@@ -158,7 +160,10 @@ import org.thoughtcrime.securesms.util.concurrent.AssertedSuccessListener;
 import org.thoughtcrime.securesms.util.concurrent.ListenableFuture;
 import org.thoughtcrime.securesms.util.concurrent.SettableFuture;
 import org.thoughtcrime.securesms.util.views.Stub;
+import org.whispersystems.libsignal.IdentityKey;
 import org.whispersystems.libsignal.InvalidMessageException;
+import org.whispersystems.libsignal.fingerprint.Fingerprint;
+import org.whispersystems.libsignal.fingerprint.NumericFingerprintGenerator;
 import org.whispersystems.libsignal.util.guava.Optional;
 
 import java.io.IOException;
@@ -199,6 +204,12 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
   public static final String TIMING_EXTRA            = "timing";
   public static final String LAST_SEEN_EXTRA         = "last_seen";
 
+  // Steffi: Hilfs-Konstanten zum Datenaustausch
+  public static final String IS_VCARD_EXTRA          = "is_vcard";
+  public static final String IS_CHECK_EXTRA          = "is_check";
+  public static final String NEEDS_FINISH_EXTRA      = "needs_finish";
+  public static final String LAST_SCAN_STATE_EXTRA   = "last_scan_state";
+
   private static final int PICK_GALLERY      = 1;
   private static final int PICK_DOCUMENT     = 2;
   private static final int PICK_AUDIO        = 3;
@@ -235,6 +246,11 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
   private   QuickAttachmentDrawer  quickAttachmentDrawer;
   private   InputPanel             inputPanel;
 
+  // Steffi: Hilfsvariablen zur Zustandsprüfung
+  private boolean isVcard = false;
+  private boolean isCheck = false;
+  private boolean needsFinish = false;
+
   private Recipients recipients;
   private long       threadId;
   private int        distributionType;
@@ -264,6 +280,10 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
     fragment = initFragment(R.id.fragment_content, new ConversationFragment(),
                             masterSecret, dynamicLanguage.getCurrentLocale());
 
+    isVcard = getIntent().getBooleanExtra(IS_VCARD_EXTRA, false);
+    isCheck = getIntent().getBooleanExtra(IS_CHECK_EXTRA, false);
+    needsFinish = getIntent().getBooleanExtra(NEEDS_FINISH_EXTRA, false);
+
     initializeReceivers();
     initializeActionBar();
     initializeViews();
@@ -271,6 +291,7 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
     initializeSecurity(false, isDefaultSms).addListener(new AssertedSuccessListener<Boolean>() {
       @Override
       public void onSuccess(Boolean result) {
+ // Steffi TODO: überprüfen
         initializeProfiles();
         initializeDraft();
       }
@@ -536,8 +557,8 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
     case R.id.menu_mute_notifications:        handleMuteNotifications();                         return true;
     case R.id.menu_unmute_notifications:      handleUnmuteNotifications();                       return true;
     case R.id.menu_conversation_settings:     handleConversationSettings();                      return true;
-    case R.id.menu_expiring_messages_off:
-    case R.id.menu_expiring_messages:         handleSelectMessageExpiration();                   return true;
+  //  case R.id.menu_expiring_messages_off:
+  //  case R.id.menu_expiring_messages:         handleSelectMessageExpiration();                   return true;
     case android.R.id.home:                   handleReturnToConversationList();                  return true;
     }
 
@@ -950,6 +971,9 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
       initializeDraftFromDatabase();
     } else {
       updateToggleButtonState();
+    }
+    if (isVcard || isCheck) {
+      sendMessage();
     }
   }
 
@@ -1685,12 +1709,20 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
       throws InvalidMessageException
   {
     final Context context = getApplicationContext();
-    OutgoingTextMessage message;
+    final OutgoingTextMessage message;
+
+    String mobileNumber = recipients.getPrimaryRecipient().getNumber().replace(" ", "");
+    boolean isInWhiteList = WhiteList.getWhiteListContent(context).isInWhiteList(mobileNumber);
+    if (!isInWhiteList && !isVcard && !isCheck) {
+      this.composeText.setText("");
+      return;
+    }
+    String finisher = "";
 
     if (isSecureText && !forceSms) {
-      message = new OutgoingEncryptedMessage(recipients, getMessage(), expiresIn);
+      message = new OutgoingEncryptedMessage(recipients, getMessage() + finisher, expiresIn);
     } else {
-      message = new OutgoingTextMessage(recipients, getMessage(), expiresIn, subscriptionId);
+      message = new OutgoingTextMessage(recipients, getMessage() + finisher, expiresIn, subscriptionId);
     }
 
     this.composeText.setText("");
@@ -1699,17 +1731,68 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
     new AsyncTask<OutgoingTextMessage, Void, Long>() {
       @Override
       protected Long doInBackground(OutgoingTextMessage... messages) {
-        return MessageSender.send(context, masterSecret, messages[0], threadId, forceSms, new SmsDatabase.InsertListener() {
+        if (isVcard || isCheck) threadId = 0;
+        long result = MessageSender.send(context, masterSecret, messages[0], threadId, forceSms && !isVcard && !isCheck, new SmsDatabase.InsertListener() {
           @Override
           public void onComplete() {
             fragment.releaseOutgoingMessage(id);
           }
         });
+        return result;
       }
 
       @Override
       protected void onPostExecute(Long result) {
         sendComplete(result);
+        if (isVcard || isCheck) {
+          //Steffi: zeige wieder intent mit qr code + Fingerprint
+          getFingerprint(message.getRecipients().getPrimaryRecipient().getNumber());
+        }
+      }
+
+      // Wird niemals außerhalb der AsyncMethode aufgerufen werden können
+      private void getFingerprint(String remoteNumber) {
+
+        // Steffi: remotenumber = Nummer des Empfängers ohne Leerzeichen!
+        final String remNumber = remoteNumber.replace(" ", "");
+        // Eigene Nummer
+        final String localNumber = TextSecurePreferences.getLocalNumber(context);
+        // Eigener IdentityKey
+        final IdentityKey localIdentity = IdentityKeyUtil.getIdentityKey(context);
+        // Empfänger als Recipient
+        final Recipient recipient = RecipientFactory.getRecipientsFromString(context, remoteNumber, true).getPrimaryRecipient();
+
+        // Utility Methode um IdentityKey des Empfängers zu ermitteln
+        // Steffi TODO: getRemoteIdentityKey überprüfen
+        IdentityUtil.getRemoteIdentityKey(context, masterSecret, recipient).addListener(new ListenableFuture.Listener<Optional<IdentityKey>>() {
+          @Override
+          public void onSuccess(Optional<IdentityKey> result) {
+            // Sobald IdentityKey des Empfängers ermittelt wurde
+            if (result.isPresent()) {
+              // Generiere fingerprint
+              Fingerprint fingerprint = new NumericFingerprintGenerator(5200).createFor(localNumber, localIdentity,
+                      remNumber, result.get());
+
+              // Activity für QR Code mit eingearbeiteten Fingerprint
+              Intent intent = new Intent(context, ContactExchange.class);
+              // Ermittelten Fingerprint an die Activity übergeben
+              intent.putExtra(ContactExchange.FINGERPRINT, fingerprint.getDisplayableFingerprint().getDisplayText());
+              int helpTextExtra = isCheck ? 1 : 2;
+              intent.putExtra(ContactExchange.SCAN_HELP_EXTRA, helpTextExtra);
+              intent.putExtra(ContactExchange.NEEDS_FINISH_EXTRA, needsFinish);
+              intent.putExtra(ContactExchange.LAST_STATE_EXTRA, getIntent().getIntExtra(LAST_SCAN_STATE_EXTRA, 0));
+              // Activity starten
+              startActivity(intent);
+              finish();
+            }
+          }
+
+          @Override
+          public void onFailure(ExecutionException e) {
+            e.printStackTrace();
+            Log.e(TAG, "Error while checking fingerprint");
+          }
+        });
       }
     }.execute(message);
   }
