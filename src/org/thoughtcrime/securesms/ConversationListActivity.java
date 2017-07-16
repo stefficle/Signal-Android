@@ -148,13 +148,14 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
     super.onOptionsItemSelected(item);
 
     switch (item.getItemId()) {
-    case R.id.menu_new_group:         createGroup();           return true;
+//    case R.id.menu_new_group:         createGroup();           return true; // Steffi: Deaktivierung der Funktionalität zur Erstellung von Gruppen
     case R.id.menu_settings:          handleDisplaySettings(); return true;
     case R.id.menu_clear_passphrase:  handleClearPassphrase(); return true;
     case R.id.menu_mark_all_read:     handleMarkAllRead();     return true;
     case R.id.menu_import_export:     handleImportExport();    return true;
     case R.id.menu_invite:            handleInvite();          return true;
     case R.id.menu_help:              handleHelp();            return true;
+    case R.id.menu_new_contact:       handleNewContact();      return true;
     }
 
     return false;
@@ -176,6 +177,12 @@ public class ConversationListActivity extends PassphraseRequiredActionBarActivit
   @Override
   public void onSwitchToArchive() {
     Intent intent = new Intent(this, ConversationListArchiveActivity.class);
+    startActivity(intent);
+  }
+
+  private void handleNewContact() {
+    Log.d(TAG, "handle new contact");
+    Intent intent = new Intent(this, ContactExchange.class);
     startActivity(intent);
   }
 

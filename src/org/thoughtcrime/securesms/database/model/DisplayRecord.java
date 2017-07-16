@@ -126,7 +126,7 @@ public abstract class DisplayRecord {
   }
 
   public boolean isJoined() {
-    return SmsDatabase.Types.isJoinedType(type);
+    return false;//SmsDatabase.Types.isJoinedType(type);
   }
 
   public boolean isIncomingCall() {

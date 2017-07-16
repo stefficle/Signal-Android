@@ -1764,14 +1764,14 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
 
         // Utility Methode um IdentityKey des Empfängers zu ermitteln
         // Steffi TODO: getRemoteIdentityKey überprüfen
-        IdentityUtil.getRemoteIdentityKey(context, masterSecret, recipient).addListener(new ListenableFuture.Listener<Optional<IdentityKey>>() {
+        IdentityUtil.getRemoteIdentityKey(context, recipient).addListener(new ListenableFuture.Listener<Optional<IdentityRecord>>() {
           @Override
-          public void onSuccess(Optional<IdentityKey> result) {
+          public void onSuccess(Optional<IdentityRecord> result) {
             // Sobald IdentityKey des Empfängers ermittelt wurde
             if (result.isPresent()) {
               // Generiere fingerprint
               Fingerprint fingerprint = new NumericFingerprintGenerator(5200).createFor(localNumber, localIdentity,
-                      remNumber, result.get());
+                      remNumber, result.get().getIdentityKey());
 
               // Activity für QR Code mit eingearbeiteten Fingerprint
               Intent intent = new Intent(context, ContactExchange.class);

@@ -33,10 +33,12 @@ import org.whispersystems.libsignal.util.guava.Optional;
 import org.whispersystems.signalservice.api.SignalServiceAccountManager;
 import org.whispersystems.signalservice.api.push.ContactTokenDetails;
 import org.whispersystems.signalservice.api.util.InvalidNumberException;
+import org.whispersystems.signalservice.api.util.PhoneNumberFormatter;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
@@ -103,22 +105,31 @@ public class DirectoryHelper {
       throws IOException
   {
     TextSecureDirectory       directory              = TextSecureDirectory.getInstance(context);
-    Set<String>               eligibleContactNumbers = directory.getPushEligibleContactNumbers(localNumber);
+//    Set<String>               eligibleContactNumbers = directory.getPushEligibleContactNumbers(localNumber);
+    Set<String> eligibleContactNumbers = new HashSet<>();
+
+    // Steffi: whitelist auslesen
+    WhiteList whiteList = WhiteList.getWhiteListContent(context);
+
+    for(String number : whiteList.getContactList().keySet()) {
+      try {
+        eligibleContactNumbers.add(PhoneNumberFormatter.formatNumber(number, localNumber));
+      } catch (InvalidNumberException e) {
+        e.printStackTrace();
+      }
+    }
 
     String vCard = FileHelper.readDataFromFile(context, FileHelper.vCardFileName);
     VCard child = JsonUtils.fromJson(vCard, VCard.class);
 
-    for (ParentsContact p : child.getParents()) {
-      if (!eligibleContactNumbers.contains(p.getMobileNumber())) {
-        eligibleContactNumbers.add(p.getMobileNumber());
-      }
-    }
+//    for (ParentsContact p : child.getParents()) {
+//      if (!eligibleContactNumbers.contains(p.getMobileNumber())) {
+//        eligibleContactNumbers.add(p.getMobileNumber());
+//      }
+//    }
 
     List<ContactTokenDetails> activeTokens           = accountManager.getContacts(eligibleContactNumbers);
     List<ContactTokenDetails> activeTokensToRemove = new ArrayList<>();
-
-    // Steffi: whitelist auslesen
-    WhiteList whiteList = WhiteList.getWhiteListContent(context);
 
     if (activeTokens != null) {
       for (ContactTokenDetails activeToken : activeTokens) {

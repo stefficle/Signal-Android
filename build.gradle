@@ -117,6 +117,7 @@ dependencies {
         exclude group: 'org.hamcrest',        module: 'hamcrest-core'
         exclude group: 'com.android.support', module: 'support-annotations'
     }
+    compile 'com.android.support.constraint:constraint-layout:1.0.2'
 }
 
 dependencyVerification {

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-            android:layout_width="fill_parent"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="fill_parent"
             android:layout_height="fill_parent"
             android:fillViewport="true"
             android:background="@drawable/background_pattern_repeat">
@@ -50,12 +51,107 @@
 
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/textView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Name des Kindes"
+            tools:text="Name des Kindes" />
+
+        <EditText
+            android:id="@+id/childFirstName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ems="10"
+            android:hint="Vorname"
+            android:inputType="textPersonName" />
+
+        <EditText
+            android:id="@+id/childLastName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ems="10"
+            android:hint="Nachname"
+            android:inputType="textPersonName" />
+
         <TextView style="@style/Registration.Description"
                   android:layout_width="fill_parent"
                   android:layout_marginBottom="8dip"
                   android:layout_marginTop="16dip"
                   android:gravity="start"
                   android:text="@string/registration_activity__verify_your_number_to_connect_with_signal"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Bitte geben Sie die Handy-Nummer eines Elternteils ein"
+            tools:text="Bitte geben Sie die Handy-Nummer eines Elternteils ein" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/textView4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="20sp"
+                style="@style/Registration.Constant"
+                android:text="+" />
+
+            <EditText
+                android:id="@+id/parents_country_code"
+                android:layout_width="55dip"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:inputType="phone"
+                android:digits="0123456789"
+                android:maxLength="3"
+                android:singleLine="true" />
+
+            <EditText
+                android:id="@+id/parents_number"
+                android:layout_width="0dip"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ems="10"
+                android:hint="@string/registration_activity__phone_number"
+                android:inputType="phone"
+                android:gravity="center"
+                android:singleLine="true" />
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Name des Elternteils"
+            tools:text="Name des Elternteils" />
+
+        <EditText
+            android:id="@+id/parentFirstName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ems="10"
+            android:hint="Vorname"
+            android:inputType="textPersonName" />
+
+        <EditText
+            android:id="@+id/parentLastName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ems="10"
+            android:hint="Nachname"
+            android:inputType="textPersonName" />
+
+        <EditText
+            android:id="@+id/parentDisplayname"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ems="10"
+            android:hint="Anzeigename (beim Kind)"
+            android:inputType="textPersonName" />
 
         <TextView style="@style/Registration.Description"
                   android:id="@+id/registration_information"

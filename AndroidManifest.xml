@@ -384,6 +384,9 @@
 
     <activity android:name="com.soundcloud.android.crop.CropImageActivity" />
 
+    <activity android:name=".ContactExchange"
+              android:screenOrientation="portrait"></activity>
+
     <service android:enabled="true" android:name="org.thoughtcrime.securesms.service.WebRtcCallService"/>
 
     <service android:enabled="true" android:name=".service.ApplicationMigrationService"/>

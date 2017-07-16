@@ -24,6 +24,7 @@ import org.thoughtcrime.securesms.additions.VCard;
 import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
 import org.thoughtcrime.securesms.database.DatabaseFactory;
+import org.thoughtcrime.securesms.database.IdentityDatabase;
 import org.thoughtcrime.securesms.database.ThreadDatabase;
 import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientFactory;
@@ -262,14 +263,14 @@ public class ContactExchange extends AppCompatActivity {
         MasterSecret masterSecret = KeyCachingService.getMasterSecret(getApplicationContext());
 
         // Utility Methode um IdentityKey des Empfängers zu ermitteln
-        IdentityUtil.getRemoteIdentityKey(context, masterSecret, recipient).addListener(new ListenableFuture.Listener<Optional<IdentityKey>>() {
+        IdentityUtil.getRemoteIdentityKey(context, recipient).addListener(new ListenableFuture.Listener<Optional<IdentityDatabase.IdentityRecord>>() {
             @Override
-            public void onSuccess(Optional<IdentityKey> result) {
+            public void onSuccess(Optional<IdentityDatabase.IdentityRecord> result) {
                 // Sobald IdentityKey des Empfängers ermittelt wurde
                 if (result.isPresent()) {
                     // Generiere fingerprint
                     Fingerprint fingerprint = new NumericFingerprintGenerator(5200).createFor(localNumber, localIdentity,
-                            remNumber, result.get());
+                            remNumber, result.get().getIdentityKey());
 
                     if (fingerprint.getDisplayableFingerprint().getDisplayText().equals(qrFingerprint)) {
                         sendVCard(remNumber);
