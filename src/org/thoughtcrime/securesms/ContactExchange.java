@@ -21,6 +21,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import org.thoughtcrime.securesms.additions.FileHelper;
+import org.thoughtcrime.securesms.additions.NewContactsList;
+import org.thoughtcrime.securesms.additions.QrData;
 import org.thoughtcrime.securesms.additions.VCard;
 import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
@@ -67,10 +69,17 @@ public class ContactExchange extends AppCompatActivity {
 
     private TextView helpText;
 
+    private NewContactsList ncList;
+    private UUID uuid;
+    private QrData qrData;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        ncList = NewContactsList.getNewContactsContent(getApplicationContext());
+        uuid = UUID.randomUUID();
 
         scanHelp = getIntent().getIntExtra(SCAN_HELP_EXTRA, 0);
         needsFinish = getIntent().getBooleanExtra(NEEDS_FINISH_EXTRA, false);
@@ -90,14 +99,13 @@ public class ContactExchange extends AppCompatActivity {
         final Button scanButton = (Button) findViewById(R.id.button_scan);
         VCard vCard  = VCard.getVCard(getApplicationContext());
         String localNumber = vCard.getMobileNumber().trim();
-        String uniqueId = UUID.randomUUID().toString(); // Steffi: Erzeugung einer unique ID in Form von "067e6162-3b6f-4ae2-a171-2470b63dff00"
-//        FileHelper.writeUuid(getApplicationContext(), uniqueId);
-        String qrCode = String.format("%1$s|%2$s", localNumber, uniqueId);
+        qrData = new QrData(uuid, null, null);
+        String qrCode = String.format("%1$s|%2$s", localNumber, qrData.getOwnId());
 
-        // Prüfen, ob Fingerprint vorhanden, wenn ja, dann in QR Code einarbeiten
-        if (fingerprint != null && !fingerprint.isEmpty()) {
-            qrCode += String.format("|%s", fingerprint);
-        }
+        // Steffi: OBSOLETE - Prüfen, ob Fingerprint vorhanden, wenn ja, dann in QR Code einarbeiten
+//        if (fingerprint != null && !fingerprint.isEmpty()) {
+//            qrCode += String.format("|%s", fingerprint);
+//        }
 
         DisplayMetrics displayMetrics = new DisplayMetrics();
         getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
@@ -210,7 +218,11 @@ public class ContactExchange extends AppCompatActivity {
                     String mobileNumber = stringResults[0];
 
                     if(stringResults.length >= 2 && !stringResults[1].isEmpty()) {
-//                        FileHelper.writeUuid(getApplicationContext(), stringResults[1]);
+                        // Steffi: zweites Item muss UUID des gescannten QrCodes sein
+                        UUID otherId = UUID.fromString(stringResults[1]);
+                        qrData.setMobileNumber(mobileNumber);
+                        qrData.setOtherId(otherId);
+                        NewContactsList.addNewContact(getApplicationContext(), qrData);
                     } else {
                         // TODO Steffi: throw Error or something
                     }

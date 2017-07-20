@@ -21,9 +21,15 @@ public class QrData {
 
     public UUID getOwnId() { return this.ownId; }
 
+    public void setOwnId(UUID id) { this.ownId = id; }
+
     public UUID getOtherId() { return this.otherId; }
 
+    public void setOtherId(UUID id) { this.otherId = id; }
+
     public String getMobileNumber() { return this.getMobileNumber(); }
+
+    public void setMobileNumber(String mobileNr) { this.mobileNumber = mobileNr; }
 
     @Override
     public boolean equals(Object o) {

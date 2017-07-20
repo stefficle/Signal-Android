@@ -22,6 +22,17 @@ public class NewContactsList {
         }
     }
 
+    public static void addNewContact(final Context context, QrData qrData) {
+        try {
+            NewContactsList ncList = getNewContactsContent(context);
+            ncList.newContacts.add(qrData);
+            String jsonString = JsonUtils.toJson(ncList);
+            FileHelper.writeDataToFile(context, jsonString, FileHelper.newContactsFileName);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     public static void addNewContact(final Context context, UUID ownId, String mobileNr, UUID otherId) {
         try {
             NewContactsList ncList = getNewContactsContent(context);
