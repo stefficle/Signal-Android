@@ -19,7 +19,7 @@ public final class FileHelper {
     public static String whiteListFileName = "whiteList";
     public static String pendingListFileName = "pendingList";
     public static String blackListFileName = "blackList";
-    public static String newContactFileName = "newContact";
+    public static String newContactsFileName = "newContacts";
 
     private FileHelper() {
     }
@@ -64,19 +64,6 @@ public final class FileHelper {
             ex.printStackTrace();
             return result;
         }
-        return result;
-    }
-
-    public static void writeUuid(final Context context, String uuid) {
-        FileHelper.checkFileExistence(context, FileHelper.newContactFileName);
-        FileHelper.writeDataToFile(context, uuid, FileHelper.newContactFileName);
-    }
-
-    public static String readUuid(final Context context) {
-        String result = "";
-
-        result = FileHelper.readDataFromFile(context, newContactFileName);
-
         return result;
     }
 }

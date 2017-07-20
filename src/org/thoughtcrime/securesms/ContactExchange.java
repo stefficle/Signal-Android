@@ -91,7 +91,7 @@ public class ContactExchange extends AppCompatActivity {
         VCard vCard  = VCard.getVCard(getApplicationContext());
         String localNumber = vCard.getMobileNumber().trim();
         String uniqueId = UUID.randomUUID().toString(); // Steffi: Erzeugung einer unique ID in Form von "067e6162-3b6f-4ae2-a171-2470b63dff00"
-        FileHelper.writeUuid(getApplicationContext(), uniqueId);
+//        FileHelper.writeUuid(getApplicationContext(), uniqueId);
         String qrCode = String.format("%1$s|%2$s", localNumber, uniqueId);
 
         // Prüfen, ob Fingerprint vorhanden, wenn ja, dann in QR Code einarbeiten
@@ -210,7 +210,7 @@ public class ContactExchange extends AppCompatActivity {
                     String mobileNumber = stringResults[0];
 
                     if(stringResults.length >= 2 && !stringResults[1].isEmpty()) {
-                        FileHelper.writeUuid(getApplicationContext(), stringResults[1]);
+//                        FileHelper.writeUuid(getApplicationContext(), stringResults[1]);
                     } else {
                         // TODO Steffi: throw Error or something
                     }
@@ -221,9 +221,10 @@ public class ContactExchange extends AppCompatActivity {
                         needsFinish = stringResults.length < 4;
 
                         checkFingerprint(mobileNumber, qrFingerprint);
-                    } else {
-                        sendCheckMessage(mobileNumber);
                     }
+//                    else {
+//                        sendCheckMessage(mobileNumber);
+//                    }
                 }
             }
         }
