@@ -6,7 +6,6 @@ import org.thoughtcrime.securesms.util.JsonUtils;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -14,7 +13,7 @@ import java.util.UUID;
  */
 
 public class NewContactsList {
-    private List<QrData> newContacts;
+    private ArrayList<String> newContacts;
 
     public NewContactsList() {
         if(this.newContacts == null) {
@@ -22,7 +21,7 @@ public class NewContactsList {
         }
     }
 
-    public static void addNewContact(final Context context, QrData qrData) {
+    public static void addNewContact(final Context context, String qrData) {
         try {
             NewContactsList ncList = getNewContactsContent(context);
             ncList.newContacts.add(qrData);
@@ -36,7 +35,8 @@ public class NewContactsList {
     public static void addNewContact(final Context context, UUID ownId, String mobileNr, UUID otherId) {
         try {
             NewContactsList ncList = getNewContactsContent(context);
-            ncList.newContacts.add(new QrData(ownId, otherId, mobileNr));
+            QrData d = new QrData(ownId, otherId, mobileNr);
+            ncList.newContacts.add(String.format("%1$s|%2$s|%3$s", ownId, mobileNr, otherId));
             String jsonString = JsonUtils.toJson(ncList);
             FileHelper.writeDataToFile(context, jsonString, FileHelper.newContactsFileName);
         } catch (IOException e) {
@@ -58,12 +58,12 @@ public class NewContactsList {
         return result ? qrData : null;
     }
 
-    public static QrData getNewContactById(final Context context, UUID id) {
-        QrData result = null;
+    public static String getNewContactById(final Context context, UUID id) {
+        String result = null;
         NewContactsList ncList = getNewContactsContent(context);
         if (ncList != null && ncList.newContacts.size() > 0) {
-            for(QrData qrd : ncList.newContacts) {
-                if(qrd.getOtherId().toString().equals(id.toString())) {
+            for(String qrd : ncList.newContacts) {
+                if(qrd.endsWith(id.toString())) {
                     result = qrd;
                     break;
                 }
@@ -84,7 +84,7 @@ public class NewContactsList {
         return ncList;
     }
 
-    public List<QrData> getNewContacts() {
+    public ArrayList<String> getNewContacts() {
         return  this.newContacts;
     }
 }

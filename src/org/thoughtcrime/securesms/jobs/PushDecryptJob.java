@@ -11,8 +11,10 @@ import org.thoughtcrime.securesms.ApplicationContext;
 import org.thoughtcrime.securesms.additions.BlackList;
 import org.thoughtcrime.securesms.additions.FileHelper;
 import org.thoughtcrime.securesms.additions.MessageHelper;
+import org.thoughtcrime.securesms.additions.NewContactsList;
 import org.thoughtcrime.securesms.additions.ParentsContact;
 import org.thoughtcrime.securesms.additions.PendingList;
+import org.thoughtcrime.securesms.additions.QrData;
 import org.thoughtcrime.securesms.additions.VCard;
 import org.thoughtcrime.securesms.additions.WhiteList;
 import org.thoughtcrime.securesms.attachments.DatabaseAttachment;
@@ -100,6 +102,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class PushDecryptJob extends ContextJob {
@@ -917,12 +920,36 @@ public class PushDecryptJob extends ContextJob {
 
     Recipient             r = recipients.getPrimaryRecipient();
 
+    if(isCheck(body)) {
+      String otherUuidString = body.replace("!@check_", "").trim();
+
+      try {
+        UUID otherUuid = UUID.fromString(otherUuidString);
+        String otherQrData = NewContactsList.getNewContactById(context, otherUuid);
+        if(otherQrData != null && !otherQrData.isEmpty()) {
+          String[] qrDataValues = otherQrData.split("|");
+          if(qrDataValues.length < 0 || qrDataValues.length > 3 || !qrDataValues[1].toLowerCase().equals(r.getNumber().toLowerCase())) return;
+
+          VCard vCard = VCard.getVCard(context);
+
+          String messageText = String.format("!@vcard_%s", JsonUtils.toJson(vCard));
+          SendMessage(messageText, source, recipients);
+        }
+      } catch(IllegalArgumentException iae) {
+        Log.e(TAG, "Could not parse string to UUID");
+        iae.printStackTrace();
+      } catch(NotInDirectoryException nide) {
+        Log.e(TAG, String.format("Could not find recipient %s in directory", r.getNumber()));
+        nide.printStackTrace();
+      } catch(IOException ioe){
+        Log.e(TAG, "Could not parse VCard after check");
+        ioe.printStackTrace();
+      }
+
+    }
+
     if (isVCard(body)) {
       String vCardString = body.replace("!@vcard_", "").trim();
-//      boolean isFinisher = vCardString.endsWith("|fpf");
-//      if(isFinisher) {
-//        vCardString = vCardString.replace("|fpf", "").trim();
-//      }
       try {
         PendingList.checkExpirationDates(context);
         BlackList.checkExpirationDates(context);
@@ -1036,6 +1063,10 @@ public class PushDecryptJob extends ContextJob {
 
   private boolean isVCard(String body) {
     return body.startsWith("!@vcard_");
+  }
+
+  private boolean isCheck(String body) {
+    return body.startsWith("!@check_");
   }
 
   private long handleSynchronizeSentTextMessage(@NonNull MasterSecretUnion masterSecret,

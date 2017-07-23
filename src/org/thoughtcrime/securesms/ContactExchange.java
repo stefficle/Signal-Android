@@ -44,7 +44,6 @@ import org.whispersystems.libsignal.util.guava.Optional;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.GregorianCalendar;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
@@ -68,10 +67,13 @@ public class ContactExchange extends AppCompatActivity {
     private boolean needsFinish = false;
 
     private TextView helpText;
+    private Button scanButton;
+    private Button finishButton;
 
     private NewContactsList ncList;
     private UUID uuid;
     private QrData qrData;
+    private String remoteNumber;
 
 
     @Override
@@ -85,7 +87,7 @@ public class ContactExchange extends AppCompatActivity {
         needsFinish = getIntent().getBooleanExtra(NEEDS_FINISH_EXTRA, false);
         lastState = getIntent().getIntExtra(LAST_STATE_EXTRA, 0);
 
-        Log.d("CE","Creating Contact Exchange");
+        Log.d("CE", "Creating Contact Exchange");
         // Steffi: verhindert, dass ein Screenshot gemacht wird
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
 
@@ -95,9 +97,11 @@ public class ContactExchange extends AppCompatActivity {
         setContentView(R.layout.activity_contact_exchange);
 
         // Steffi: Permissions schon bei der Installation bzw. Registrierung einholen zB checkSelfPermission(Manifest.permission.QR_READ_STORAGE);
+        finishButton = (Button) findViewById(R.id.button_finish);
+        setupFinishClickListener();
 
-        final Button scanButton = (Button) findViewById(R.id.button_scan);
-        VCard vCard  = VCard.getVCard(getApplicationContext());
+        scanButton = (Button) findViewById(R.id.button_scan);
+        VCard vCard = VCard.getVCard(getApplicationContext());
         String localNumber = vCard.getMobileNumber().trim();
         qrData = new QrData(uuid, null, null);
         String qrCode = String.format("%1$s|%2$s", localNumber, qrData.getOwnId());
@@ -106,7 +110,26 @@ public class ContactExchange extends AppCompatActivity {
 //        if (fingerprint != null && !fingerprint.isEmpty()) {
 //            qrCode += String.format("|%s", fingerprint);
 //        }
+        displayQrCode(qrCode);
+    }
 
+    private void setupFinishClickListener() {
+        finishButton.setOnClickListener(new View.OnClickListener() {
+
+            @Override
+            public void onClick(View v) {
+                if (remoteNumber != null
+                        && !remoteNumber.isEmpty()
+                        && uuid != null) {
+                    sendCheckMessage(remoteNumber, String.format("!@check_%s", uuid.toString()));
+                } else {
+                    // TODO Steffi: zeige Fehlermeldung an
+                }
+            }
+        });
+    }
+
+    private void displayQrCode(String qrCode) {
         DisplayMetrics displayMetrics = new DisplayMetrics();
         getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
         int height = displayMetrics.heightPixels;
@@ -136,23 +159,27 @@ public class ContactExchange extends AppCompatActivity {
                 Log.e(TAG, "Error while encoding qrCode");
             }
 
-            scanButton.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    Intent qrDroid = new Intent("la.droid.qr.scan");
-                    qrDroid.putExtra("la.droid.qr.complete", true);
-
-                    try {
-                        startActivityForResult(qrDroid, ACTIVITY_RESULT_QR_DROID_SCAN);
-                    } catch (ActivityNotFoundException activity) {
-                        activity.printStackTrace();
-                        Log.e(TAG, "Error while scanning qr code");
-                    }
-                }
-            });
+            setupScanClickListener();
 
             showHelpMessage();
         }
+    }
+
+    private void setupScanClickListener() {
+        scanButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent qrDroid = new Intent("la.droid.qr.scan");
+                qrDroid.putExtra("la.droid.qr.complete", true);
+
+                try {
+                    startActivityForResult(qrDroid, ACTIVITY_RESULT_QR_DROID_SCAN);
+                } catch (ActivityNotFoundException activity) {
+                    activity.printStackTrace();
+                    Log.e(TAG, "Error while scanning qr code");
+                }
+            }
+        });
     }
 
     // Steffi: Überprüfung, ob die Rechte gegeben wurden oder nicht.
@@ -170,6 +197,16 @@ public class ContactExchange extends AppCompatActivity {
                     startActivity(intent);
                 }
         }
+    }
+
+    private void showScanButton() {
+        this.finishButton.setVisibility(View.INVISIBLE);
+        this.scanButton.setVisibility(View.VISIBLE);
+    }
+
+    private void showFinishButton() {
+        this.scanButton.setVisibility(View.INVISIBLE);
+        this.finishButton.setVisibility(View.VISIBLE);
     }
 
     private void showHelpMessage() {
@@ -221,22 +258,17 @@ public class ContactExchange extends AppCompatActivity {
                         // Steffi: zweites Item muss UUID des gescannten QrCodes sein
                         UUID otherId = UUID.fromString(stringResults[1]);
                         qrData.setMobileNumber(mobileNumber);
+                        this.remoteNumber = mobileNumber;
+
                         qrData.setOtherId(otherId);
-                        NewContactsList.addNewContact(getApplicationContext(), qrData);
+                        String qrDataString = String.format("%1$s|%2$s|%3$s", uuid.toString(), mobileNumber, otherId.toString());
+                        NewContactsList.addNewContact(getApplicationContext(), qrDataString);
+
+//                        TODO Steffi: Aktiviere "Fertig-Button"
+                        showFinishButton();
                     } else {
                         // TODO Steffi: throw Error or something
                     }
-
-                    // Wenn 3 Werte übermittelt wurden, dann muss Fingerprint vorhanden sein als letzter Eintrag
-                    if (stringResults.length >= 3 && !stringResults[2].isEmpty()) {
-                        String qrFingerprint = stringResults[2];
-                        needsFinish = stringResults.length < 4;
-
-                        checkFingerprint(mobileNumber, qrFingerprint);
-                    }
-//                    else {
-//                        sendCheckMessage(mobileNumber);
-//                    }
                 }
             }
         }
@@ -255,12 +287,12 @@ public class ContactExchange extends AppCompatActivity {
         }
     }
 
-    private void sendCheckMessage(String mobileNumber) {
+    private void sendCheckMessage(String mobileNumber, String message) {
         Recipients recipients = RecipientFactory.getRecipientsFromString(this, mobileNumber, true);
 
         Intent intent = new Intent(this, ConversationActivity.class);
         intent.putExtra(ConversationActivity.RECIPIENTS_EXTRA, recipients.getIds());
-        intent.putExtra(ConversationActivity.TEXT_EXTRA, String.format("!@check_%s", "check"));
+        intent.putExtra(ConversationActivity.TEXT_EXTRA, message);
         intent.putExtra(ConversationActivity.IS_CHECK_EXTRA, true);
         intent.setDataAndType(getIntent().getData(), getIntent().getType());
 
