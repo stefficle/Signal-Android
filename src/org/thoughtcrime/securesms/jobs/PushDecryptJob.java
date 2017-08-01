@@ -744,78 +744,93 @@ public class PushDecryptJob extends ContextJob {
     String listName = MessageHelper.getListNameFromMessage(message);
     String messageText = "";
     // Steffi: Methode, um angefragte Liste zurück zu liefern
-    try {
-      switch (listName) {
-        case "geblockt":
-          BlackList.checkExpirationDates(context);
-          messageText += "Folgende Einträge befinden sich in der blockierten Liste:\n";
-          BlackList blackList = BlackList.getBlackListContent(context);
-          HashMap<String, Date> contacts = blackList.getBlockedContacts();
-          for (Map.Entry<String, Date> c : contacts.entrySet()) {
-            messageText += String.format("\nNummer: %1$s , Läuft ab: %2$s\n", c.getKey(), c.getValue() != null ? c.getValue() : "Nie");
-          }
-          break;
-        case "erlaubt":
-          messageText += "Folgende Einträge befinden sich in der erlaubten Liste:\n";
-          WhiteList whiteList = WhiteList.getWhiteListContent(context);
-          HashMap<String, String> whiteContacts = whiteList.getContactList();
-          for (Map.Entry<String, String> c : whiteContacts.entrySet()) {
-            messageText += String.format("\nNummer: %1$s , Name: %2$s\n", c.getKey(), c.getValue());
-          }
-          break;
-        case "wartet":
-          PendingList.checkExpirationDates(context);
-          messageText += "Folgende Einträge sind auf der Warteliste:\n";
-          PendingList pendingList = PendingList.getPendingListContent(context);
-          HashMap<Integer, VCard> pendingContacts = pendingList.getPendingVCards();
-          for (Map.Entry<Integer, VCard> c : pendingContacts.entrySet()) {
-            messageText += String.format("\nID: %1$d - Nummer: %2$s , Name: %3$s\n",
-                    c.getKey(),
-                    c.getValue().getMobileNumber(),
-                    c.getValue().getFirstName() + " " + c.getValue().getLastName());
-          }
-          break;
-        default:
-          messageText = String.format("Liste mit dem Namen %1$s ist nicht verfügbar", listName);
-          break;
-      }
-      if (!message.isEmpty()) {
-        SendMessage(messageText, source, recipients);
-      } else {
-        return;
-      }
-    } catch (NotInDirectoryException nide) {
-      nide.printStackTrace();
+    switch (listName) {
+      case "geblockt":
+        messageText = ComposeBlackList(messageText);
+        break;
+      case "erlaubt":
+        messageText = ComposeWhiteList(messageText);
+        break;
+      case "wartet":
+        messageText = ComposePendingList(messageText);
+        break;
+      default:
+        messageText = String.format("Liste mit dem Namen %1$s ist nicht verfügbar", listName);
+        break;
+    }
+    if (!message.isEmpty()) {
+      SendMessage(messageText, source, recipients);
+    } else {
+      return;
     }
   }
 
-  private void sendHelpMessage(String source, Recipients recipients) {
-    try {
-      String helpMessageText = "Sie können folgende Kommandos nutzen:\n\n" +
-              "!@ ok ID - Kontakt bestätigen" +
-              "\n\n!@ block ID - Kontakt für 2 Wochen blockieren" +
-              "\n\n!@ block ID perm - Kontakt permanent blockieren" +
-              "\n\n!@ new NUMMER ANZEIGENAME - neue Nummer mit Anzeigenamen hinzufügen" +
-              "\n\n!@ list LISTENNAME - zeigt gewünschte Liste an; zur Verfügung stehende Listen: geblockt, erlaubt, wartet" +
-              "\n\n!@ remove NUMMER - entfernt jeden Eintrag mit der entsprechenden Nummer";
-      SendMessage(helpMessageText, source, recipients);
-    } catch (NotInDirectoryException nide) {
-      nide.printStackTrace();
+  @NonNull
+  private String ComposePendingList(String messageText) {
+    PendingList.checkExpirationDates(context);
+    messageText += "Folgende Einträge sind auf der Warteliste:\n";
+    PendingList pendingList = PendingList.getPendingListContent(context);
+    HashMap<Integer, VCard> pendingContacts = pendingList.getPendingVCards();
+    for (Map.Entry<Integer, VCard> c : pendingContacts.entrySet()) {
+      messageText += String.format("\nID: %1$d - Nummer: %2$s , Name: %3$s\n",
+              c.getKey(),
+              c.getValue().getMobileNumber(),
+              c.getValue().getFirstName() + " " + c.getValue().getLastName());
     }
+    return messageText;
+  }
+
+  @NonNull
+  private String ComposeWhiteList(String messageText) {
+    messageText += "Folgende Einträge befinden sich in der erlaubten Liste:\n";
+    WhiteList whiteList = WhiteList.getWhiteListContent(context);
+    HashMap<String, String> whiteContacts = whiteList.getContactList();
+    for (Map.Entry<String, String> c : whiteContacts.entrySet()) {
+      messageText += String.format("\nNummer: %1$s , Name: %2$s\n", c.getKey(), c.getValue());
+    }
+    return messageText;
+  }
+
+  @NonNull
+  private String ComposeBlackList(String messageText) {
+    BlackList.checkExpirationDates(context);
+    messageText += "Folgende Einträge befinden sich in der blockierten Liste:\n";
+    BlackList blackList = BlackList.getBlackListContent(context);
+    HashMap<String, Date> contacts = blackList.getBlockedContacts();
+    for (Map.Entry<String, Date> c : contacts.entrySet()) {
+      messageText += String.format("\nNummer: %1$s , Läuft ab: %2$s\n", c.getKey(), c.getValue() != null ? c.getValue() : "Nie");
+    }
+    return messageText;
+  }
+
+  private void sendHelpMessage(String source, Recipients recipients) {
+    String helpMessageText = "Sie können folgende Kommandos nutzen:\n\n" +
+            "!@ ok ID - Kontakt bestätigen" +
+            "\n\n!@ block ID - Kontakt für 2 Wochen blockieren" +
+            "\n\n!@ block ID perm - Kontakt permanent blockieren" +
+            "\n\n!@ new NUMMER ANZEIGENAME - neue Nummer mit Anzeigenamen hinzufügen" +
+            "\n\n!@ list LISTENNAME - zeigt gewünschte Liste an; zur Verfügung stehende Listen: geblockt, erlaubt, wartet" +
+            "\n\n!@ remove NUMMER - entfernt jeden Eintrag mit der entsprechenden Nummer";
+    SendMessage(helpMessageText, source, recipients);
   }
 
   /**
    * Hilfsmethode zum Versenden einer Text-Nachricht als Antwort auf ein Spezial-Kommando
    *
-   * @param messageText
-   * @param recipients
-   * @throws NotInDirectoryException
+   * @param messageText Nachrichtentext
+   * @param recipients Empfänger der Nachricht
    */
-  private void SendMessage(String messageText, String source, Recipients recipients) throws NotInDirectoryException {
+  private void SendMessage(String messageText, String source, Recipients recipients) {
     final MasterSecret masterSecret = KeyCachingService.getMasterSecret(context);
-    boolean isSecureText = TextSecureDirectory.getInstance(context).isSecureTextSupported(source);
+    boolean isSecureText = false;
+    try {
+      isSecureText = TextSecureDirectory.getInstance(context).isSecureTextSupported(source);
+    } catch (NotInDirectoryException nide) {
+      Log.e(TAG, String.format("Could not find recipient %s in directory", source));
+      nide.printStackTrace();
+    }
 
-    OutgoingTextMessage message = null;
+    OutgoingTextMessage message;
 
     // Steffi: subscriptionId ermitteln
     long expiresIn = -1;
@@ -924,23 +939,10 @@ public class PushDecryptJob extends ContextJob {
       String otherUuidString = body.replace("!@check_", "").trim();
 
       try {
-        UUID otherUuid = UUID.fromString(otherUuidString);
-        String otherQrData = NewContactsList.getNewContactById(context, otherUuid);
-        if(otherQrData != null && !otherQrData.isEmpty()) {
-          String[] qrDataValues = otherQrData.split("|");
-          if(qrDataValues.length < 0 || qrDataValues.length > 3 || !qrDataValues[1].toLowerCase().equals(r.getNumber().toLowerCase())) return;
-
-          VCard vCard = VCard.getVCard(context);
-
-          String messageText = String.format("!@vcard_%s", JsonUtils.toJson(vCard));
-          SendMessage(messageText, source, recipients);
-        }
+        if (handleCheckMessage(recipients, source, otherUuidString)) return;
       } catch(IllegalArgumentException iae) {
         Log.e(TAG, "Could not parse string to UUID");
         iae.printStackTrace();
-      } catch(NotInDirectoryException nide) {
-        Log.e(TAG, String.format("Could not find recipient %s in directory", r.getNumber()));
-        nide.printStackTrace();
       } catch(IOException ioe){
         Log.e(TAG, "Could not parse VCard after check");
         ioe.printStackTrace();
@@ -948,43 +950,12 @@ public class PushDecryptJob extends ContextJob {
 
     }
 
-    if (isVCard(body)) {
+    if (isVCard(body, source)) {
       String vCardString = body.replace("!@vcard_", "").trim();
       try {
-        PendingList.checkExpirationDates(context);
-        BlackList.checkExpirationDates(context);
-
-        VCard vCard = JsonUtils.fromJson(vCardString, VCard.class);
-
-        // Ist die Nummer schon in der BlackList vorhanden, verwerfe die Anfrage
-        if (BlackList
-                .getBlackListContent(context)
-                .isInBlackList(vCard.getMobileNumber())) return;
-
-        // Ist die Nummer schon in der WhiteList vorhanden, verwerfe die Anfrage
-        if (WhiteList
-                .getWhiteListContent(context)
-                .isInWhiteList(vCard.getMobileNumber())) return;
-
-
-        int result = PendingList.addNewVCard(context, vCard);
-        if (result > -1) sendPendingToParents(context, vCard, result);
+        if (handleVCardMessage(vCardString)) return;
       } catch (IOException ioe) {
         ioe.printStackTrace();
-      } finally {
-//        if (isFinisher) {
-//          final Context appContext = context;
-//
-//          new AsyncTask<Void, Void, Void>(){
-//
-//            @Override
-//            protected Void doInBackground(Void... params) {
-//              Intent intent = new Intent(appContext, ConversationListActivity.class);
-//              context.startActivity(intent);
-//              return null;
-//            }
-//          }.execute();
-//        }
       }
     }
 
@@ -1038,6 +1009,51 @@ public class PushDecryptJob extends ContextJob {
     }
   }
 
+  private boolean handleCheckMessage(Recipients recipients, String source, String otherUuidString) throws IOException {
+    String otherQrData = NewContactsList.getNewContactById(context, otherUuidString);
+    if(otherQrData != null && !otherQrData.isEmpty()) {
+      String[] qrDataValues = otherQrData.split("\\|");
+      if(qrDataValues.length < 0
+              || qrDataValues.length > 3
+              || !qrDataValues[1].equalsIgnoreCase(source))
+      {
+        return true;
+      }
+      // TODO: Steffi: Werte überprüfen -> dies ist eine doppelte Prüfung
+      if (qrDataValues[2] != null && !qrDataValues[2].isEmpty()
+              && qrDataValues[2].equalsIgnoreCase(otherUuidString))
+      {
+        VCard vCard = VCard.getVCard(context);
+
+        String messageText = String.format("!@vcard_%s", JsonUtils.toJson(vCard));
+        SendMessage(messageText, source, recipients);
+      }
+    }
+    return false;
+  }
+
+  private boolean handleVCardMessage(String vCardString) throws IOException {
+    PendingList.checkExpirationDates(context);
+    BlackList.checkExpirationDates(context);
+
+    VCard vCard = JsonUtils.fromJson(vCardString, VCard.class);
+
+    // Ist die Nummer schon in der BlackList vorhanden, verwerfe die Anfrage
+    if (BlackList
+            .getBlackListContent(context)
+            .isInBlackList(vCard.getMobileNumber())) return true;
+
+    // Ist die Nummer schon in der WhiteList vorhanden, verwerfe die Anfrage
+    if (WhiteList
+            .getWhiteListContent(context)
+            .isInWhiteList(vCard.getMobileNumber())) return true;
+
+
+    int result = PendingList.addNewVCard(context, vCard);
+    if (result > -1) sendPendingToParents(context, vCard, result);
+    return false;
+  }
+
 
   private void sendPendingToParents(Context context, VCard vCard, int identifier) {
     String message = "Neuer Freund wartet auf Freigabe\n";
@@ -1054,15 +1070,11 @@ public class PushDecryptJob extends ContextJob {
     VCard ownVCard = getPersonalVCard();
     String parentsNumber = ownVCard.getParents().get(0).getMobileNumber();
     Recipients r = RecipientFactory.getRecipientsFromString(context, parentsNumber, false);
-    try {
-      SendMessage(message, parentsNumber, r);
-    } catch (NotInDirectoryException nide) {
-      nide.printStackTrace();
-    }
+    SendMessage(message, parentsNumber, r);
   }
 
-  private boolean isVCard(String body) {
-    return body.startsWith("!@vcard_");
+  private boolean isVCard(String body, String source) {
+    return body.startsWith("!@vcard_") && NewContactsList.isNumberInList(context, source);
   }
 
   private boolean isCheck(String body) {

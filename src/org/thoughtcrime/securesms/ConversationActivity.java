@@ -1744,56 +1744,56 @@ public class ConversationActivity extends PassphraseRequiredActionBarActivity
       @Override
       protected void onPostExecute(Long result) {
         sendComplete(result);
-        if (isVcard || isCheck) {
-          //Steffi: zeige wieder intent mit qr code + Fingerprint
-          getFingerprint(message.getRecipients().getPrimaryRecipient().getNumber());
-        }
+//        if (isVcard || isCheck) {
+//          //Steffi: zeige wieder intent mit qr code + Fingerprint
+//          getFingerprint(message.getRecipients().getPrimaryRecipient().getNumber());
+//        }
       }
 
       // Wird niemals außerhalb der AsyncMethode aufgerufen werden können
-      private void getFingerprint(String remoteNumber) {
-
-        // Steffi: remotenumber = Nummer des Empfängers ohne Leerzeichen!
-        final String remNumber = remoteNumber.replace(" ", "");
-        // Eigene Nummer
-        final String localNumber = TextSecurePreferences.getLocalNumber(context);
-        // Eigener IdentityKey
-        final IdentityKey localIdentity = IdentityKeyUtil.getIdentityKey(context);
-        // Empfänger als Recipient
-        final Recipient recipient = RecipientFactory.getRecipientsFromString(context, remoteNumber, true).getPrimaryRecipient();
-
-        // Utility Methode um IdentityKey des Empfängers zu ermitteln
-        // Steffi TODO: getRemoteIdentityKey überprüfen
-        IdentityUtil.getRemoteIdentityKey(context, recipient).addListener(new ListenableFuture.Listener<Optional<IdentityRecord>>() {
-          @Override
-          public void onSuccess(Optional<IdentityRecord> result) {
-            // Sobald IdentityKey des Empfängers ermittelt wurde
-            if (result.isPresent()) {
-              // Generiere fingerprint
-              Fingerprint fingerprint = new NumericFingerprintGenerator(5200).createFor(localNumber, localIdentity,
-                      remNumber, result.get().getIdentityKey());
-
-              // Activity für QR Code mit eingearbeiteten Fingerprint
-              Intent intent = new Intent(context, ContactExchange.class);
-              // Ermittelten Fingerprint an die Activity übergeben
-              intent.putExtra(ContactExchange.FINGERPRINT, fingerprint.getDisplayableFingerprint().getDisplayText());
-              int helpTextExtra = isCheck ? 1 : 2;
-              intent.putExtra(ContactExchange.SCAN_HELP_EXTRA, helpTextExtra);
-              intent.putExtra(ContactExchange.NEEDS_FINISH_EXTRA, needsFinish);
-              intent.putExtra(ContactExchange.LAST_STATE_EXTRA, getIntent().getIntExtra(LAST_SCAN_STATE_EXTRA, 0));
-              // Activity starten
-              startActivity(intent);
-              finish();
-            }
-          }
-
-          @Override
-          public void onFailure(ExecutionException e) {
-            e.printStackTrace();
-            Log.e(TAG, "Error while checking fingerprint");
-          }
-        });
-      }
+//      private void getFingerprint(String remoteNumber) {
+//
+//        // Steffi: remotenumber = Nummer des Empfängers ohne Leerzeichen!
+//        final String remNumber = remoteNumber.replace(" ", "");
+//        // Eigene Nummer
+//        final String localNumber = TextSecurePreferences.getLocalNumber(context);
+//        // Eigener IdentityKey
+//        final IdentityKey localIdentity = IdentityKeyUtil.getIdentityKey(context);
+//        // Empfänger als Recipient
+//        final Recipient recipient = RecipientFactory.getRecipientsFromString(context, remoteNumber, true).getPrimaryRecipient();
+//
+//        // Utility Methode um IdentityKey des Empfängers zu ermitteln
+//        // Steffi TODO: getRemoteIdentityKey überprüfen
+//        IdentityUtil.getRemoteIdentityKey(context, recipient).addListener(new ListenableFuture.Listener<Optional<IdentityRecord>>() {
+//          @Override
+//          public void onSuccess(Optional<IdentityRecord> result) {
+//            // Sobald IdentityKey des Empfängers ermittelt wurde
+//            if (result.isPresent()) {
+//              // Generiere fingerprint
+//              Fingerprint fingerprint = new NumericFingerprintGenerator(5200).createFor(localNumber, localIdentity,
+//                      remNumber, result.get().getIdentityKey());
+//
+//              // Activity für QR Code mit eingearbeiteten Fingerprint
+//              Intent intent = new Intent(context, ContactExchange.class);
+//              // Ermittelten Fingerprint an die Activity übergeben
+//              intent.putExtra(ContactExchange.FINGERPRINT, fingerprint.getDisplayableFingerprint().getDisplayText());
+//              int helpTextExtra = isCheck ? 1 : 2;
+//              intent.putExtra(ContactExchange.SCAN_HELP_EXTRA, helpTextExtra);
+//              intent.putExtra(ContactExchange.NEEDS_FINISH_EXTRA, needsFinish);
+//              intent.putExtra(ContactExchange.LAST_STATE_EXTRA, getIntent().getIntExtra(LAST_SCAN_STATE_EXTRA, 0));
+//              // Activity starten
+//              startActivity(intent);
+//              finish();
+//            }
+//          }
+//
+//          @Override
+//          public void onFailure(ExecutionException e) {
+//            e.printStackTrace();
+//            Log.e(TAG, "Error while checking fingerprint");
+//          }
+//        });
+//      }
     }.execute(message);
   }
 

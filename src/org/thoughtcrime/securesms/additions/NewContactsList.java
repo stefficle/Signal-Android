@@ -58,12 +58,12 @@ public class NewContactsList {
         return result ? qrData : null;
     }
 
-    public static String getNewContactById(final Context context, UUID id) {
+    public static String getNewContactById(final Context context, String uuid) {
         String result = null;
         NewContactsList ncList = getNewContactsContent(context);
         if (ncList != null && ncList.newContacts.size() > 0) {
             for(String qrd : ncList.newContacts) {
-                if(qrd.endsWith(id.toString())) {
+                if(qrd.endsWith(uuid)) {
                     result = qrd;
                     break;
                 }
@@ -82,6 +82,22 @@ public class NewContactsList {
         }
 
         return ncList;
+    }
+
+    public static boolean isNumberInList(final Context context, String number) {
+        NewContactsList ncList = getNewContactsContent(context);
+
+        if(ncList != null && !ncList.newContacts.isEmpty()) {
+            for(String newContact : ncList.newContacts) {
+                if(newContact.contains(number)) {
+                    return true;
+                }
+            }
+
+            return false;
+        } else {
+            return false;
+        }
     }
 
     public ArrayList<String> getNewContacts() {

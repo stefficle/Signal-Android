@@ -3,13 +3,19 @@ package org.thoughtcrime.securesms;
 import android.Manifest;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -20,37 +26,23 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.thoughtcrime.securesms.additions.FileHelper;
 import org.thoughtcrime.securesms.additions.NewContactsList;
 import org.thoughtcrime.securesms.additions.QrData;
 import org.thoughtcrime.securesms.additions.VCard;
-import org.thoughtcrime.securesms.crypto.IdentityKeyUtil;
 import org.thoughtcrime.securesms.crypto.MasterSecret;
-import org.thoughtcrime.securesms.database.DatabaseFactory;
-import org.thoughtcrime.securesms.database.IdentityDatabase;
-import org.thoughtcrime.securesms.database.ThreadDatabase;
-import org.thoughtcrime.securesms.recipients.Recipient;
 import org.thoughtcrime.securesms.recipients.RecipientFactory;
 import org.thoughtcrime.securesms.recipients.Recipients;
 import org.thoughtcrime.securesms.service.KeyCachingService;
-import org.thoughtcrime.securesms.util.IdentityUtil;
-import org.thoughtcrime.securesms.util.JsonUtils;
-import org.thoughtcrime.securesms.util.TextSecurePreferences;
-import org.thoughtcrime.securesms.util.concurrent.ListenableFuture;
-import org.whispersystems.libsignal.IdentityKey;
-import org.whispersystems.libsignal.fingerprint.Fingerprint;
-import org.whispersystems.libsignal.fingerprint.NumericFingerprintGenerator;
-import org.whispersystems.libsignal.util.guava.Optional;
+import org.thoughtcrime.securesms.sms.MessageSender;
+import org.thoughtcrime.securesms.sms.OutgoingTextMessage;
+import org.thoughtcrime.securesms.util.ServiceUtil;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.UUID;
-import java.util.concurrent.ExecutionException;
 
 public class ContactExchange extends AppCompatActivity {
 
     //Steffi: intent extra data, um fingerprint erhalten zu können
-    public static final String FINGERPRINT = "qr_fingerprint";
     public static final String SCAN_HELP_EXTRA = "scan_help";
     public static final String NEEDS_FINISH_EXTRA = "needs_finish";
     public static final String LAST_STATE_EXTRA = "last_state";
@@ -83,18 +75,21 @@ public class ContactExchange extends AppCompatActivity {
         ncList = NewContactsList.getNewContactsContent(getApplicationContext());
         uuid = UUID.randomUUID();
 
-        scanHelp = getIntent().getIntExtra(SCAN_HELP_EXTRA, 0);
-        needsFinish = getIntent().getBooleanExtra(NEEDS_FINISH_EXTRA, false);
-        lastState = getIntent().getIntExtra(LAST_STATE_EXTRA, 0);
+//        scanHelp = getIntent().getIntExtra(SCAN_HELP_EXTRA, 0);
+//        needsFinish = getIntent().getBooleanExtra(NEEDS_FINISH_EXTRA, false);
+//        lastState = getIntent().getIntExtra(LAST_STATE_EXTRA, 0);
 
         Log.d("CE", "Creating Contact Exchange");
         // Steffi: verhindert, dass ein Screenshot gemacht wird
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
 
         // Holen des möglichen Fingerprints
-        String fingerprint = getIntent().getStringExtra(FINGERPRINT);
 
         setContentView(R.layout.activity_contact_exchange);
+
+        if(!isNetworkConnected()) {
+            handleNoConnectivity();
+        }
 
         // Steffi: Permissions schon bei der Installation bzw. Registrierung einholen zB checkSelfPermission(Manifest.permission.QR_READ_STORAGE);
         finishButton = (Button) findViewById(R.id.button_finish);
@@ -106,11 +101,34 @@ public class ContactExchange extends AppCompatActivity {
         qrData = new QrData(uuid, null, null);
         String qrCode = String.format("%1$s|%2$s", localNumber, qrData.getOwnId());
 
-        // Steffi: OBSOLETE - Prüfen, ob Fingerprint vorhanden, wenn ja, dann in QR Code einarbeiten
-//        if (fingerprint != null && !fingerprint.isEmpty()) {
-//            qrCode += String.format("|%s", fingerprint);
-//        }
         displayQrCode(qrCode);
+    }
+
+    private void handleNoConnectivity() {
+        final Intent listActivity = new Intent(this, ConversationListActivity.class);
+        final Intent wirelessActivity = new Intent(Settings.ACTION_WIRELESS_SETTINGS);
+
+        AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
+        alertDialog.setTitle("Keine Netzwerkverbindung gefunden");
+
+        alertDialog.setMessage("Bitte aktiviere eine Verbindung zum Internet. Dies kann eine mobile Datenverbindung oder eine W-LAN Verbinung sein.");
+
+        alertDialog.setPositiveButton("Netzwerkeinstellungen", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                startActivity(wirelessActivity);
+            }
+        });
+
+        alertDialog.setNegativeButton("Abbrechen", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                startActivity(listActivity);
+                finish();
+            }
+        });
+
+        alertDialog.show();
     }
 
     private void setupFinishClickListener() {
@@ -120,8 +138,11 @@ public class ContactExchange extends AppCompatActivity {
             public void onClick(View v) {
                 if (remoteNumber != null
                         && !remoteNumber.isEmpty()
-                        && uuid != null) {
-                    sendCheckMessage(remoteNumber, String.format("!@check_%s", uuid.toString()));
+                        && uuid != null)
+                {
+                    // TODO Steffi: evtl. VCard senden
+                    String checkMessage = String.format("!@check_%s", uuid.toString());
+                    sendMessage(checkMessage, remoteNumber);
                 } else {
                     // TODO Steffi: zeige Fehlermeldung an
                 }
@@ -161,7 +182,7 @@ public class ContactExchange extends AppCompatActivity {
 
             setupScanClickListener();
 
-            showHelpMessage();
+            showHelpMessage(ScanState.START);
         }
     }
 
@@ -209,28 +230,24 @@ public class ContactExchange extends AppCompatActivity {
         this.finishButton.setVisibility(View.VISIBLE);
     }
 
-    private void showHelpMessage() {
+    private void showHelpMessage(ScanState scanState) {
 
         helpText = (TextView) findViewById(R.id.helpTextView);
         String infoMessage = "";
 
-        switch (scanHelp) {
-            case 1:
-                infoMessage = "2. Jetzt diesen QR-Code scannen lassen und dann selbst noch einmal den anderen QR-Code scannen";
+        switch (scanState) {
+            case END:
+                infoMessage = "2. Sobald ihr gegenseitig die QR-Codes gescannt habt, kannst du auf \"Fertig\" drücken.";
                 break;
-            case 2:
-                infoMessage = "3. Der letzte Schritt!";
-                needsFinish = lastState == 1;
-                break;
-            case 0:
+            case START:
             default:
-                infoMessage = "1. Einen der QR-Codes scannen";
+                infoMessage = "1. Gegenseitig die QR-Codes scannen";
                 break;
         }
 
         helpText.setText(infoMessage);
         if (needsFinish) {
-            Toast t = Toast.makeText(getApplicationContext(), "Der Austausch ist fertig!", Toast.LENGTH_LONG);
+            Toast t = Toast.makeText(this, "Der Austausch ist fertig!", Toast.LENGTH_LONG);
             t.show();
         }
     }
@@ -264,9 +281,12 @@ public class ContactExchange extends AppCompatActivity {
                         String qrDataString = String.format("%1$s|%2$s|%3$s", uuid.toString(), mobileNumber, otherId.toString());
                         NewContactsList.addNewContact(getApplicationContext(), qrDataString);
 
-//                        TODO Steffi: Aktiviere "Fertig-Button"
+                        // Steffi: Passe Hilfsnachricht an
+                        showHelpMessage(ScanState.END);
+//                        Steffi: Aktiviere "Fertig-Button"
                         showFinishButton();
                     } else {
+                        Log.w(TAG, String.format("Fehler im QR Code: %s", result));
                         // TODO Steffi: throw Error or something
                     }
                 }
@@ -287,88 +307,53 @@ public class ContactExchange extends AppCompatActivity {
         }
     }
 
-    private void sendCheckMessage(String mobileNumber, String message) {
-        Recipients recipients = RecipientFactory.getRecipientsFromString(this, mobileNumber, true);
-
-        Intent intent = new Intent(this, ConversationActivity.class);
-        intent.putExtra(ConversationActivity.RECIPIENTS_EXTRA, recipients.getIds());
-        intent.putExtra(ConversationActivity.TEXT_EXTRA, message);
-        intent.putExtra(ConversationActivity.IS_CHECK_EXTRA, true);
-        intent.setDataAndType(getIntent().getData(), getIntent().getType());
-
-        long existingThread = DatabaseFactory.getThreadDatabase(this).getThreadIdIfExistsFor(recipients);
-
-        intent.putExtra(ConversationActivity.THREAD_ID_EXTRA, existingThread);
-        intent.putExtra(ConversationActivity.DISTRIBUTION_TYPE_EXTRA, ThreadDatabase.DistributionTypes.DEFAULT);
-        startActivity(intent);
-        finish();
-    }
-
-    private void checkFingerprint(String remoteNumber, final String qrFingerprint) {
+    private void sendMessage(String messageText, String remoteNumber) {
         final Context context = getApplicationContext();
-        // Steffi: remotenumber = Nummer des Empfängers ohne Leerzeichen!
-        final String remNumber = remoteNumber.replace(" ", "");
-        // Eigene Nummer
-        final String localNumber = TextSecurePreferences.getLocalNumber(context);
-        // Eigener IdentityKey
-        final IdentityKey localIdentity = IdentityKeyUtil.getIdentityKey(context);
-        // Empfänger als Recipient
-        final Recipient recipient = RecipientFactory.getRecipientsFromString(context, remoteNumber, true).getPrimaryRecipient();
-        MasterSecret masterSecret = KeyCachingService.getMasterSecret(getApplicationContext());
+        Recipients recipients = RecipientFactory.getRecipientsFromString(context, remoteNumber, false);
+        final MasterSecret masterSecret = KeyCachingService.getMasterSecret(context);
 
-        // Utility Methode um IdentityKey des Empfängers zu ermitteln
-        IdentityUtil.getRemoteIdentityKey(context, recipient).addListener(new ListenableFuture.Listener<Optional<IdentityDatabase.IdentityRecord>>() {
+        // Steffi: subscriptionId ermitteln
+        long expiresIn = -1;
+        int subscriptionId = 0;
+
+        OutgoingTextMessage message = new OutgoingTextMessage(recipients, messageText, expiresIn, subscriptionId);
+
+        final Intent intent = new Intent(this, ConversationListActivity.class);
+
+        // Steffi: threadId ermitteln
+        new AsyncTask<OutgoingTextMessage, Void, Long>() {
             @Override
-            public void onSuccess(Optional<IdentityDatabase.IdentityRecord> result) {
-                // Sobald IdentityKey des Empfängers ermittelt wurde
-                if (result.isPresent()) {
-                    // Generiere fingerprint
-                    Fingerprint fingerprint = new NumericFingerprintGenerator(5200).createFor(localNumber, localIdentity,
-                            remNumber, result.get().getIdentityKey());
-
-                    if (fingerprint.getDisplayableFingerprint().getDisplayText().equals(qrFingerprint)) {
-                        sendVCard(remNumber);
-                    } else {
-                        return;
-                    }
-                }
+            protected Long doInBackground(OutgoingTextMessage... messages) {
+                // Steffi: threadId setzen
+                long threadId = 0;
+                return MessageSender.send(context, masterSecret, messages[0], threadId, false, null);
             }
 
             @Override
-            public void onFailure(ExecutionException e) {
-                e.printStackTrace();
-                Log.e(TAG, "Error checking fingerprint");
-            }
-        });
-    }
-
-    private void sendVCard(String mobileNumber) {
-
-        Context context = getApplicationContext();
-
-        VCard vCard = VCard.getVCard(context);
-        if (vCard != null) {
-            try {
-                String vCardString = JsonUtils.toJson(vCard);
-                Recipients recipients = RecipientFactory.getRecipientsFromString(this, mobileNumber, true);
-
-                Intent intent = new Intent(this, ConversationActivity.class);
-                intent.putExtra(ConversationActivity.RECIPIENTS_EXTRA, recipients.getIds());
-                intent.putExtra(ConversationActivity.TEXT_EXTRA, String.format("!@vcard_%s", vCardString));
-                intent.putExtra(ConversationActivity.IS_VCARD_EXTRA, true);
-                intent.putExtra(ConversationActivity.NEEDS_FINISH_EXTRA, needsFinish);
-                intent.putExtra(ConversationActivity.LAST_SCAN_STATE_EXTRA, scanHelp);
-                intent.setDataAndType(getIntent().getData(), getIntent().getType());
-
-                long existingThread = DatabaseFactory.getThreadDatabase(this).getThreadIdIfExistsFor(recipients);
-
-                intent.putExtra(ConversationActivity.THREAD_ID_EXTRA, existingThread);
-                intent.putExtra(ConversationActivity.DISTRIBUTION_TYPE_EXTRA, ThreadDatabase.DistributionTypes.DEFAULT);
+            protected void onPostExecute(Long result) {
                 startActivity(intent);
                 finish();
-            } catch (IOException ioe) {
-                ioe.printStackTrace();
             }
-        }
+        }.execute(message);
+    }
+
+    private boolean isNetworkConnected() {
+        ConnectivityManager cm = ServiceUtil.getConnectivityManager(this);
+
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        boolean isConnected = activeNetwork != null && activeNetwork.isConnectedOrConnecting();
+        if(!isConnected)
+            return isConnected;
+
+        boolean isDataConnectionAvailbale =
+                activeNetwork.getType() == ConnectivityManager.TYPE_WIFI
+                        || activeNetwork.getType() == ConnectivityManager.TYPE_MOBILE;
+
+        return isConnected && isDataConnectionAvailbale;
+    }
+
+    protected enum ScanState {
+        START,
+        END
     }
 }
